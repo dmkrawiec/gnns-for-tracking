@@ -34,9 +34,10 @@ def get_file_prefixes(indir, trackml=True, evtid_min=0, evtid_max=8000,
     evtids = [int(prefix[-9:]) for prefix in file_prefixes]
     if (evtid_min < np.min(evtids)): evtid_min = np.min(evtids)
     if (evtid_max > np.max(evtids)): evtid_max = np.max(evtids)
+    # Last conditional due to tendency for ._ event files to somehow show up
     file_prefixes = [prefix for prefix in file_prefixes
                      if ((int(prefix.split("0000")[-1]) >= evtid_min) and
-                         (int(prefix.split("0000")[-1]) <= evtid_max))]
+                         (int(prefix.split("0000")[-1]) <= evtid_max)) and ("._" not in prefix)]
     file_prefixes = np.array_split(file_prefixes, n_tasks)[task]
     return file_prefixes
 

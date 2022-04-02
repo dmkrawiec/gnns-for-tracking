@@ -21,7 +21,7 @@ def parse_args(args):
     parser = argparse.ArgumentParser('prepare.py')
     add_arg = parser.add_argument
     add_arg('-v', '--verbose', action='store_true')
-    add_arg('-i', '--input-dir', type=str, default='/tigress/jdezoort/codalab/train_1')
+    add_arg('-i', '--input-dir', type=str, default='/Volumes/Untitled/trackML/train_1')#'/tigress/jdezoort/codalab/train_1')
     add_arg('-o', '--output-dir', type=str, default='particle_properties')
     add_arg('--n-workers', type=int, default=1)
     add_arg('--redo', type=bool, default=False)
@@ -259,12 +259,16 @@ def main(args):
     initialize_logger(verbose=args.verbose)
     input_dir = args.input_dir
     output_dir = args.output_dir
+    # If the output directory does not exist, create it
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
     train_idx = int(input_dir.split('train_')[-1][0])
     logging.info(f'Running on data from {input_dir}.')
     file_prefixes = get_file_prefixes(input_dir,
                                       n_tasks=args.n_tasks, 
                                       task=args.task, evtid_min=0,
-                                      evtid_max=100000)
+                                      evtid_max=1001,
+                                      codalab=False)
     
     with mp.Pool(processes=args.n_workers) as pool:
         process_func = partial(make_df,
