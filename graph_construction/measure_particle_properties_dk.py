@@ -121,7 +121,7 @@ def rotate_conformal(u, v, alpha):
     theta = alpha + np.arctan2(v, u)
     return r*np.cos(theta), r*np.sin(theta)
 
-def three_stage_fitting(u, v, rt, verbose=False) -> [float, float, float, np.array]:
+def three_stage_fitting(u, v, pt_true, verbose=False) -> [float, float, float, np.array]:
     """
     Performs direct linear fit first; if it succeeds, uses the resulting slope to obtain rotation angle.
     The track is then rotated to be roughly parallel to the x-axis.
@@ -172,8 +172,9 @@ def three_stage_fitting(u, v, rt, verbose=False) -> [float, float, float, np.arr
     try:  # parabolic fit
         # Uses b_inv = 1/b
         b_inv = 1 / b
+        R_initial_guess = pt_true/0.0006 #np.sqrt(a ** 2 + b ** 2)
         fit_params, pcov = optimize.curve_fit(parabolic_2, u, v,
-                                                    p0=(np.sqrt(rt-b**2), b_inv, np.sqrt(a ** 2 + b ** 2)), maxfev=maxfev) #,
+                                                    p0=(np.sqrt(rt-b**2), b_inv, R_initial_guess), maxfev=maxfev) #,
         a, b_inv, R = fit_params
         b = 1/b_inv #TODO this messes with pcov doesn't it?
         return u, v, a, b, R, pcov, alpha
@@ -325,7 +326,7 @@ def make_df(prefix, output_dir, endcaps=True,
 
         # perform conformal fit - for three_stage_fitting the rotation is performed inside the function
         # and must stay that way as the rotation angle informs the inital linear fit.
-        fit = three_stage_fitting(u[:cutoff], v[:cutoff], rt=true_pt/0.0006, verbose=False)
+        fit = three_stage_fitting(u[:cutoff], v[:cutoff], pt_true=true_pt, verbose=False)
 
         if (fit[4]==None or fit[3]==None):
             unsuccessful_fits += 1
