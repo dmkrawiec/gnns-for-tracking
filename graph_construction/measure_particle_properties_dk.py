@@ -98,6 +98,15 @@ def track_fit_plot(x, y, u, v, conformal_fit, xc, yc, R,
     plt.tight_layout()
     plt.show()
 
+def parabolic(u, a, b, R):
+    '''
+    Due to current error estimation methods, the original formula for the parabolic model is in use
+    TODO update this & the error forumula for the newer model
+    '''
+    epsilon = R - np.sqrt(a**2 + b**2)
+    v = 1/(2*b) - u*a*(1/b) - u**2*epsilon*(R/b)**3
+    return v
+
 def parabolic_2(u, a, b_inv, R):
     '''
     Due to current error estimation methods, the original formula for the parabolic model is in use
@@ -107,12 +116,20 @@ def parabolic_2(u, a, b_inv, R):
     v = b_inv/2 - u*a*b_inv - u**2*epsilon*(R*b_inv)**3
     return v
 
+def parabolic_full(u, a, b, R):
+    '''
+    Full parabolic fitting model
+    '''
+    delta = R**2 - a**2 - b**2
+    v = 1/(2*b)*(1-delta/(4*b**2)) - u*a/b*(1-delta/(2*b**2)) - u**2*delta*(R**2)/(2*b**3)
+    return v
+
 def rotate_conformal(u, v, alpha):
     r = np.sqrt(u**2 + v**2)
     theta = alpha + np.arctan2(v, u)
     return r*np.cos(theta), r*np.sin(theta)
 
-def three_stage_fitting(u, v, verbose=False) -> [float, float, float, np.array]:
+def three_stage_fitting(u, v, rt, verbose=False) -> [float, float, float, np.array]:
     """
     Performs direct linear fit first; if it succeeds, uses the resulting slope to obtain rotation angle.
     The track is then rotated to be roughly parallel to the x-axis.
@@ -159,13 +176,12 @@ def three_stage_fitting(u, v, verbose=False) -> [float, float, float, np.array]:
     a = -b * slope
 
     # Parabolic fitting
-    # Uses b_inv = 1/b
-    b_inv = 1/b
 
     try:  # parabolic fit
+        # Uses b_inv = 1/b
+        b_inv = 1 / b
         fit_params, pcov = optimize.curve_fit(parabolic_2, u, v,
-                                                    p0=(a, b_inv, np.sqrt(a ** 2 + b ** 2)),
-                                                    maxfev=maxfev)
+                                                    p0=(np.sqrt(rt-b**2), b_inv, np.sqrt(a ** 2 + b ** 2)), maxfev=maxfev) #,
         a, b_inv, R = fit_params
         b = 1/b_inv #TODO this messes with pcov doesn't it?
         return u, v, a, b, R, pcov, alpha
@@ -288,14 +304,14 @@ def make_df(prefix, output_dir, endcaps=True,
 
         # perform conformal fit - for three_stage_fitting the rotation is performed inside the function
         # and must stay that way as the rotation angle informs the inital linear fit.
-        fit = three_stage_fitting(u[:cutoff], v[:cutoff], verbose=False)
+        fit = three_stage_fitting(u[:cutoff], v[:cutoff], rt=true_pt/0.0006, verbose=False)
 
         if (fit[4]==None or fit[3]==None):
             unsuccessful_fits += 1
         else:
             print("Fit successful. Saving...")
             conformal_pt = calc_conformal_pt(fit)
-            conformal_pt_err = (true_pt - conformal_pt) / (true_pt)  # TODO implement new method
+            conformal_pt_err = abs((true_pt - conformal_pt) / (true_pt))  # TODO implement new method
             conformal_d0 = calc_conformal_d0(fit)
             properties['d0'] = conformal_d0
             properties['pt_err'] = conformal_pt_err
@@ -364,7 +380,7 @@ def main(args):
     file_prefixes = get_file_prefixes(input_dir,
                                       n_tasks=args.n_tasks, 
                                       task=args.task, evtid_min=0,
-                                      evtid_max=1002,
+                                      evtid_max=1000,
                                       codalab=False)
     
     with mp.Pool(processes=args.n_workers) as pool:
