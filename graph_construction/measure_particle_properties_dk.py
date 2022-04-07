@@ -116,14 +116,6 @@ def parabolic_2(u, a, b_inv, R):
     v = b_inv/2 - u*a*b_inv - u**2*epsilon*(R*b_inv)**3
     return v
 
-def parabolic_full(u, a, b, R):
-    '''
-    Full parabolic fitting model
-    '''
-    delta = R**2 - a**2 - b**2
-    v = 1/(2*b)*(1-delta/(4*b**2)) - u*a/b*(1-delta/(2*b**2)) - u**2*delta*(R**2)/(2*b**3)
-    return v
-
 def rotate_conformal(u, v, alpha):
     r = np.sqrt(u**2 + v**2)
     theta = alpha + np.arctan2(v, u)
@@ -188,6 +180,35 @@ def three_stage_fitting(u, v, rt, verbose=False) -> [float, float, float, np.arr
     except RuntimeError as exc:
         print("Parabolic fitting failed: " + str(exc))
         return u, v, None, None, None, None, None
+
+def parabolic_full(u, a, b, R):
+    '''
+    Full parabolic fitting model
+    '''
+    delta = R**2 - a**2 - b**2
+    v = 1/(2*b)*(1-delta/(4*b**2)) - u*a/b*(1-delta/(2*b**2)) - u**2*delta*(R**2)/(2*b**3)
+    return v
+
+def four_stage_fitting(u, v, three_stage_fit, maxfev=5000):
+    '''
+    If three stage fitting succeeded, then perhaps the accuracy of the results may be improved by using the full
+    parabolic model
+    Input:
+    * u and v - conformal coordinates of the track hits
+    * three_stage_fit - output [a, b, R, pcov, alpha] of the three_stage_fitting process
+    * maxfev (optional) - maximum iterations of scipy optimise
+    '''
+    print("attempting full parabolic fit...")
+    a, b, R, pcov, alpha = three_stage_fit
+    try:
+        fit_params, pcov = optimize.curve_fit(parabolic_full, u, v,
+                                                    p0=(a, b, R), maxfev=maxfev) #,
+        a, b, R = fit_params
+        return u, v, a, b, R, pcov, alpha
+    except RuntimeError as exc:
+        # If the fit failed, return the parameters found by the three-stage fit
+        print("Full parabolic fitting failed; using the simplified parabolic fit parameters: " + str(exc))
+        return u, v, a, b, R, pcov, alpha
 
 def make_df(prefix, output_dir, endcaps=True,
             remove_noise=False, remove_duplicates=False,
@@ -309,10 +330,11 @@ def make_df(prefix, output_dir, endcaps=True,
         if (fit[4]==None or fit[3]==None):
             unsuccessful_fits += 1
         else:
-            print("Fit successful. Saving...")
-            conformal_pt = calc_conformal_pt(fit)
-            conformal_pt_err = abs((true_pt - conformal_pt) / (true_pt))  # TODO implement new method
-            conformal_d0 = calc_conformal_d0(fit)
+            # Attempting a four-stage fit:
+            fit_2 = four_stage_fitting(u[:cutoff], v[:cutoff], three_stage_fit=fit[2:])
+            conformal_pt = calc_conformal_pt(fit_2)
+            conformal_pt_err = abs((true_pt - conformal_pt) / (true_pt))  # TODO uncertainties
+            conformal_d0 = calc_conformal_d0(fit_2)
             properties['d0'] = conformal_d0
             properties['pt_err'] = conformal_pt_err
             properties['pt_fit'] = conformal_pt
