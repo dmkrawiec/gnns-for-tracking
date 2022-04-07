@@ -36,7 +36,8 @@ def errors_circle(a:float, b:float, R:float, epsilon:float,
                   u: np.array, sig_v: np.array):
   '''
   Calculates the errors of the circle parameters and the physical quantities
-  uses errors_parabola
+
+  - uses errors_parabola
   '''
 
   # First, calculate the erorrs of the parabola parameters in the (u,v) space:

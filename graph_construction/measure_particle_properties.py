@@ -128,6 +128,8 @@ def make_df(prefix, output_dir, endcaps=True,
 
     # get truth information for each particle
     hits_by_particle = hits.groupby('particle_id')
+    successful_fits = 0
+    unsuccessful_fits = 0
     df_properties = []
     for i, (particle_id, particle_hits) in enumerate(hits_by_particle):
         properties = pd.DataFrame({'particle_id': particle_id, 'pt': 0, 'eta_pt': 0,
@@ -235,21 +237,24 @@ def make_df(prefix, output_dir, endcaps=True,
             properties['reconstructable'] = False
             properties['anomalous'] = True
             df_properties.append(properties)
+            unsuccessful_fits += 1
             continue
             
         # otherwise we have a good track and maybe a good fit
         if min_err < 0.5:
-            properties['good_fit'] = True    
+            properties['good_fit'] = True
+            successful_fits += 1
         if circle_pt_err < conformal_pt_err:
             properties['d0'] = circle_d0
         else:
             properties['d0'] = conformal_d0
         df_properties.append(properties)
-        
+
     df = pd.concat(df_properties)
     outfile = join(output_dir, f'{evtid}.csv')
     logging.info(f'Writing {outfile}')
     df.to_csv(outfile, index=False)
+    print(f"There were {successful_fits} successful and {unsuccessful_fits} unsuccessful fits performed.")
     return 1
 
 def main(args):

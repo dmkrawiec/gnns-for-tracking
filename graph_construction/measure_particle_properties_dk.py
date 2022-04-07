@@ -98,13 +98,13 @@ def track_fit_plot(x, y, u, v, conformal_fit, xc, yc, R,
     plt.tight_layout()
     plt.show()
 
-def parabolic_2(u, a, b, R):
+def parabolic_2(u, a, b_inv, R):
     '''
     Due to current error estimation methods, the original formula for the parabolic model is in use
     TODO update this & the error forumula for the newer model
     '''
-    epsilon = R - np.sqrt(a**2 + b**2)
-    v = 1/(2*b) - u*a/b - u**2*epsilon*(R/b)**3
+    epsilon = R - np.sqrt(a**2 + (1/b_inv)**2)
+    v = b_inv/2 - u*a*b_inv - u**2*epsilon*(R*b_inv)**3
     return v
 
 def rotate_conformal(u, v, alpha):
@@ -158,11 +158,16 @@ def three_stage_fitting(u, v, verbose=False) -> [float, float, float, np.array]:
     b = 1 / (2 * intercept)
     a = -b * slope
 
+    # Parabolic fitting
+    # Uses b_inv = 1/b
+    b_inv = 1/b
+
     try:  # parabolic fit
         fit_params, pcov = optimize.curve_fit(parabolic_2, u, v,
-                                                    p0=(a, b, np.sqrt(a ** 2 + b ** 2)),
+                                                    p0=(a, b_inv, np.sqrt(a ** 2 + b ** 2)),
                                                     maxfev=maxfev)
-        a, b, R = fit_params
+        a, b_inv, R = fit_params
+        b = 1/b_inv #TODO this messes with pcov doesn't it?
         return u, v, a, b, R, pcov, alpha
     except RuntimeError as exc:
         print("Parabolic fitting failed: " + str(exc))
@@ -184,6 +189,7 @@ def make_df(prefix, output_dir, endcaps=True,
 
     # load the data
     evtid = int(prefix[-9:])
+    print(evtid)
     logging.info('Event %i, loading data' % evtid)
     hits, particles, truth = trackml.dataset.load_event(
         prefix, parts=['hits', 'particles', 'truth'])
@@ -289,7 +295,7 @@ def make_df(prefix, output_dir, endcaps=True,
         else:
             print("Fit successful. Saving...")
             conformal_pt = calc_conformal_pt(fit)
-            conformal_pt_err = abs(true_pt - conformal_pt) / true_pt  # TODO implement new method
+            conformal_pt_err = (true_pt - conformal_pt) / (true_pt)  # TODO implement new method
             conformal_d0 = calc_conformal_d0(fit)
             properties['d0'] = conformal_d0
             properties['pt_err'] = conformal_pt_err
@@ -358,7 +364,7 @@ def main(args):
     file_prefixes = get_file_prefixes(input_dir,
                                       n_tasks=args.n_tasks, 
                                       task=args.task, evtid_min=0,
-                                      evtid_max=1001,
+                                      evtid_max=1002,
                                       codalab=False)
     
     with mp.Pool(processes=args.n_workers) as pool:
