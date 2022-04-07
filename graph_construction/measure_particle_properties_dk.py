@@ -174,7 +174,7 @@ def three_stage_fitting(u, v, pt_true, verbose=False) -> [float, float, float, n
         b_inv = 1 / b
         R_initial_guess = pt_true/0.0006 #np.sqrt(a ** 2 + b ** 2)
         fit_params, pcov = optimize.curve_fit(parabolic_2, u, v,
-                                                    p0=(np.sqrt(rt-b**2), b_inv, R_initial_guess), maxfev=maxfev) #,
+                                                    p0=(a, b_inv, R_initial_guess), maxfev=maxfev) #,
         a, b_inv, R = fit_params
         b = 1/b_inv #TODO this messes with pcov doesn't it?
         return u, v, a, b, R, pcov, alpha
