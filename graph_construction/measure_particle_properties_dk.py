@@ -116,10 +116,11 @@ def parabolic_2(u, a, b_inv, R):
     v = b_inv/2 - u*a*b_inv - u**2*epsilon*(R*b_inv)**3
     return v
 
-def rotate_conformal(u, v, alpha):
+def rotate_conformal(u, v, alpha): #TODO switch signs back
     r = np.sqrt(u**2 + v**2)
     theta = alpha + np.arctan2(v, u)
     return r*np.cos(theta), r*np.sin(theta)
+
 
 def three_stage_fitting(u, v, pt_true, verbose=False) -> [float, float, float, np.array]:
     """
@@ -141,6 +142,7 @@ def three_stage_fitting(u, v, pt_true, verbose=False) -> [float, float, float, n
 
     try:  # linear fit for rotation
         lin_fit_params, _ = optimize.curve_fit(linear_direct, u, v)
+
         slope, intercept = lin_fit_params
         if verbose: print('Linear naive fit params: Slope: ', slope, 'Intercept:', intercept)
     except RuntimeError as exc:
@@ -162,21 +164,19 @@ def three_stage_fitting(u, v, pt_true, verbose=False) -> [float, float, float, n
     except RuntimeError as exc:
         if verbose: print("Linear fitting failed: " + str(exc))
         if verbose: print("Will try parabolic fit anyway.")
-        slope, intercept = 0, 0.01
+        slope, intercept = 0.001, 0.01
 
     b = 1 / (2 * intercept)
     a = -b * slope
 
-    # Parabolic fitting
-
-    try:  # parabolic fit
-        # Uses b_inv = 1/b
-        b_inv = 1 / b
-        R_initial_guess = pt_true/0.0006 #np.sqrt(a ** 2 + b ** 2)
-        fit_params, pcov = optimize.curve_fit(parabolic_2, u, v,
-                                                    p0=(a, b_inv, R_initial_guess), maxfev=maxfev) #,
-        a, b_inv, R = fit_params
-        b = 1/b_inv #TODO this messes with pcov doesn't it?
+    try:
+        # parabolic fit
+        scaling_factor = 1.0 # factor for scaling the problem in b
+        R_initial_guess = np.sqrt(a ** 2 + (scaling_factor * b) ** 2)
+        a_initial_guess = a
+        b_initial_guess = b
+        fit_params, pcov = optimize.curve_fit(parabolic, u, v, p0=(a_initial_guess, b_initial_guess, R_initial_guess), maxfev=maxfev, diag=np.array([1.0, scaling_factor, 1.0])) #,
+        a, b, R = fit_params
         return u, v, a, b, R, pcov, alpha
     except RuntimeError as exc:
         print("Parabolic fitting failed: " + str(exc))
@@ -214,7 +214,8 @@ def four_stage_fitting(u, v, three_stage_fit, maxfev=5000):
 def make_df(prefix, output_dir, endcaps=True,
             remove_noise=False, remove_duplicates=False,
             n_layers_fit=4):
-    
+    scale_factor_sum = 0
+    n_good_fits = 0
     # define valid layer-layer connections
     layer_pairs = [(0,1), (1,2), (2,3)]                 # barrel-barrel
     layer_pairs.extend([(0,4), (1,4), (2,4), (3,4),     # barrel-LEC
@@ -328,13 +329,22 @@ def make_df(prefix, output_dir, endcaps=True,
         # and must stay that way as the rotation angle informs the inital linear fit.
         fit = three_stage_fitting(u[:cutoff], v[:cutoff], pt_true=true_pt, verbose=False)
 
+        four_stage = False # Toggle use of the full parabolic fit formula
+
         if (fit[4]==None or fit[3]==None):
             unsuccessful_fits += 1
         else:
             # Attempting a four-stage fit:
-            fit_2 = four_stage_fitting(u[:cutoff], v[:cutoff], three_stage_fit=fit[2:])
+            if four_stage:
+                fit_2 = four_stage_fitting(u[:cutoff], v[:cutoff], three_stage_fit=fit[2:])
+            else:
+                fit_2 = fit
             conformal_pt = calc_conformal_pt(fit_2)
             conformal_pt_err = abs((true_pt - conformal_pt) / (true_pt))  # TODO uncertainties
+            if(conformal_pt_err<0.5):
+                print("This is a good fit. a/b = ", fit[2]/fit[3])
+                scale_factor_sum += abs(fit[2]/fit[3])
+                n_good_fits += 1
             conformal_d0 = calc_conformal_d0(fit_2)
             properties['d0'] = conformal_d0
             properties['pt_err'] = conformal_pt_err
@@ -386,6 +396,8 @@ def make_df(prefix, output_dir, endcaps=True,
 
     # Reporting success rate
     print(f"There were {successful_fits} successful and {unsuccessful_fits} unsuccessful fits performed.")
+    print("suggested scaling factor: for good fits, average value of a/b is ", scale_factor_sum/n_good_fits)
+
     return 1
 
 def main(args):
