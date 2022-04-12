@@ -11,7 +11,9 @@ import numpy as np
 import pandas as pd
 import trackml.dataset
 from scipy import optimize
-
+import sympy
+from sympy.abc import x
+from sympy import sqrt
 from utils.graph_building_utils import *
 from utils.hit_processing_utils import *
 from utils.data_utils import *
@@ -98,13 +100,12 @@ def track_fit_plot(x, y, u, v, conformal_fit, xc, yc, R,
     plt.tight_layout()
     plt.show()
 
-def parabolic(u, a, b, R):
+def parabolic_simple(u, A, B, C):
     '''
     Due to current error estimation methods, the original formula for the parabolic model is in use
     TODO update this & the error forumula for the newer model
     '''
-    epsilon = R - np.sqrt(a**2 + b**2)
-    v = 1/(2*b) - u*a*(1/b) - u**2*epsilon*(R/b)**3
+    v = C - u*B - (u**2)*A
     return v
 
 def parabolic_2(u, a, b_inv, R):
@@ -122,7 +123,7 @@ def rotate_conformal(u, v, alpha): #TODO switch signs back
     return r*np.cos(theta), r*np.sin(theta)
 
 
-def three_stage_fitting(u, v, pt_true, verbose=False) -> [float, float, float, np.array]:
+def three_stage_fitting_simple(u, v, pt_true, verbose=False) -> [float, float, float, np.array]:
     """
     Performs direct linear fit first; if it succeeds, uses the resulting slope to obtain rotation angle.
     The track is then rotated to be roughly parallel to the x-axis.
@@ -173,10 +174,15 @@ def three_stage_fitting(u, v, pt_true, verbose=False) -> [float, float, float, n
         # parabolic fit
         scaling_factor = 1 #0.2 # factor for scaling the problem in b
         R_initial_guess = 1.1 * np.sqrt(a ** 2 + (scaling_factor * b) ** 2)
-        a_initial_guess = a
-        b_initial_guess = b
-        fit_params, pcov = optimize.curve_fit(parabolic, u, v, p0=(a_initial_guess, b_initial_guess, R_initial_guess), maxfev=maxfev)#, diag=np.array([1.0, scaling_factor, 1.0])) #,
-        a, b, R = fit_params
+        A_initial_guess = 2*(R_initial_guess-np.sqrt(a**2+b**2))*(R_initial_guess/b)**3
+        B_initial_guess = a*(1/b)
+        C_initial_guess = 1/(2*b)
+        fit_params, pcov = optimize.curve_fit(parabolic_simple, u, v, p0=(A_initial_guess, B_initial_guess, C_initial_guess), maxfev=maxfev)#, diag=np.array([1.0, scaling_factor, 1.0])) #,
+        A, B, C = fit_params
+        b = 0.5/C
+        a = b*B
+        sol = sympy.solve(A-(x-sqrt(a**2-b**2))(x/b)**3, x) # TODO
+        R = sol[0]
         return u, v, a, b, R, pcov, alpha
     except RuntimeError as exc:
         print("Parabolic fitting failed: " + str(exc))
@@ -327,7 +333,7 @@ def make_df(prefix, output_dir, endcaps=True,
 
         # perform conformal fit - for three_stage_fitting the rotation is performed inside the function
         # and must stay that way as the rotation angle informs the inital linear fit.
-        fit = three_stage_fitting(u[:cutoff], v[:cutoff], pt_true=true_pt, verbose=False)
+        fit = three_stage_fitting_simple(u[:cutoff], v[:cutoff], pt_true=true_pt, verbose=False)
 
         four_stage = False # Toggle use of the full parabolic fit formula
 
