@@ -172,8 +172,8 @@ def three_stage_fitting_simple(u, v, pt_true, verbose=False) -> [float, float, f
 
     try:
         # parabolic fit
-        scaling_factor = 1 #0.2 # factor for scaling the problem in b
-        R_initial_guess = 1.1 * np.sqrt(a ** 2 + (scaling_factor * b) ** 2)
+        scaling_factor = 1.0 #0.2 # factor for scaling the problem in b
+        R_initial_guess = np.sqrt(a ** 2 + (scaling_factor * b) ** 2)
         A_initial_guess = 2*(R_initial_guess-np.sqrt(a**2+b**2))*(R_initial_guess/b)**3
         B_initial_guess = a*(1/b)
         C_initial_guess = 1/(2*b)
@@ -181,8 +181,12 @@ def three_stage_fitting_simple(u, v, pt_true, verbose=False) -> [float, float, f
         A, B, C = fit_params
         b = 0.5/C
         a = b*B
-        sol = sympy.solve(A-(x-sqrt(a**2-b**2))(x/b)**3, x) # TODO
-        R = sol[0]
+        r = sympy.Symbol("r", positive=True)
+        sol = sympy.solve(A-(r-sqrt(a**2-b**2))*(r/b)**3, r) # TODO
+        if len(sol)==0:
+            R = None #TODO
+        else:
+            R = sol[0]
         return u, v, a, b, R, pcov, alpha
     except RuntimeError as exc:
         print("Parabolic fitting failed: " + str(exc))

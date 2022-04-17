@@ -171,11 +171,12 @@ def three_stage_fitting(u, v, pt_true, verbose=False) -> [float, float, float, n
 
     try:
         # parabolic fit
-        scaling_factor = 1 #0.2 # factor for scaling the problem in b
-        R_initial_guess = 1.1 * np.sqrt(a ** 2 + (scaling_factor * b) ** 2)
+        R_perturbation = 1.0
         a_initial_guess = a
         b_initial_guess = b
-        fit_params, pcov = optimize.curve_fit(parabolic, u, v, p0=(a_initial_guess, b_initial_guess, R_initial_guess), maxfev=maxfev)#, diag=np.array([1.0, scaling_factor, 1.0])) #,
+        scaling_factor = abs(a/b) # factor for scaling the problem in b
+        R_initial_guess = R_perturbation * np.sqrt(a ** 2 + (scaling_factor * b) ** 2)
+        fit_params, pcov = optimize.curve_fit(parabolic, u, v, p0=(a_initial_guess, b_initial_guess, R_initial_guess),maxfev=maxfev, diag=np.array([1.0, scaling_factor, 1.0])) #,
         a, b, R = fit_params
         return u, v, a, b, R, pcov, alpha
     except RuntimeError as exc:
