@@ -134,6 +134,11 @@ def three_stage_fitting_simple(u, v, pt_true, verbose=False) -> [float, float, f
     * u --> u[:cutoff]
     * v --> v[:cutoff]
     Returns a, b, R, pcov
+
+    * Last returned parameter : success =
+        * 1 if everything worked
+        * 0 if could not solve for R
+        * -1 if parabolic fitting failed
     """
 
     maxfev = 10000 # 5000 # Maximum iterations of scipy curvefit --> potentially worth optimising
@@ -179,18 +184,23 @@ def three_stage_fitting_simple(u, v, pt_true, verbose=False) -> [float, float, f
         C_initial_guess = 1/(2*b)
         fit_params, pcov = optimize.curve_fit(parabolic_simple, u, v, p0=(A_initial_guess, B_initial_guess, C_initial_guess), maxfev=maxfev)#, diag=np.array([1.0, scaling_factor, 1.0])) #,
         A, B, C = fit_params
-        b = 0.5/C
-        a = b*B
-        r = sympy.Symbol("r", positive=True)
-        sol = sympy.solve(A-(r-sqrt(a**2-b**2))*(r/b)**3, r) # TODO
-        if len(sol)==0:
-            R = None #TODO
-        else:
-            R = sol[0]
-        return u, v, a, b, R, pcov, alpha
     except RuntimeError as exc:
         print("Parabolic fitting failed: " + str(exc))
-        return u, v, None, None, None, None, None
+        success = -1
+        return u, v, None, None, None, None, None, success
+    # Get back
+    b = 0.5 / C
+    a = b * B
+    r = sympy.Symbol("r", positive=True)
+    # Solve to get back R
+    sol = sympy.solve(A - (r - sqrt(a ** 2 + b ** 2)) * (r / b) ** 3, r)
+    if len(sol) == 0:
+        R = None
+        success = 0
+    else:
+        R = sol[0]
+        success = 1
+    return u, v, a, b, R, pcov, alpha, success
 
 def parabolic_full(u, a, b, R):
     '''
@@ -255,7 +265,8 @@ def make_df(prefix, output_dir, endcaps=True,
 
     # Reporting success rate
     successful_fits = 0
-    unsuccessful_fits = 0
+    unsuccessful_R_unrecovered = 0
+    unsuccessful_parabolic_failed = 0
     for i, (particle_id, particle_hits) in enumerate(hits_by_particle):
         properties = pd.DataFrame({'particle_id': particle_id, 'pt_true': 0, 'eta_pt': 0,
                                    'd0': 0, 'pt_fit': 0, 'q': 0, 'n_track_segs': 0,
@@ -341,8 +352,12 @@ def make_df(prefix, output_dir, endcaps=True,
 
         four_stage = False # Toggle use of the full parabolic fit formula
 
-        if (fit[4]==None or fit[3]==None):
-            unsuccessful_fits += 1
+        if (fit[-1]!=1):
+            # The last returned parameter is 1 if the fit was successful, else
+            if fit[-1]==0:
+                unsuccessful_R_unrecovered += 1
+            else:
+                unsuccessful_parabolic_failed += 1
         else:
             # Attempting a four-stage fit:
             if four_stage:
@@ -405,7 +420,9 @@ def make_df(prefix, output_dir, endcaps=True,
     df.to_csv(outfile, index=False)
 
     # Reporting success rate
-    print(f"There were {successful_fits} successful and {unsuccessful_fits} unsuccessful fits performed.")
+    print(f"There were {successful_fits} successful fits performed.")
+    print(f"Of the {unsuccessful_parabolic_failed+unsuccessful_R_unrecovered} fits that failed, {unsuccessful_parabolic_failed} "
+          f"were due do the parabolic fitting failing and {unsuccessful_R_unrecovered} were due to failure to solve for R.")
     print("suggested scaling factor: for good fits, average value of a/b is ", scale_factor_sum/n_good_fits)
 
     return 1
