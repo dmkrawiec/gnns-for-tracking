@@ -68,12 +68,12 @@ def regress(x, y, quadratic=False):
     return(sol)
 
 def calc_conformal_pt(fit):
-    _, _, a, b, R, _, _ = fit
+    _, _, a, b, R, _, _, _ = fit
     return 0.0003*2*R
     
 def calc_conformal_d0(fit):
     # TODO! fit[2] is not what it was for gage
-    _, _, a, b, R, _, _ = fit
+    _, _, a, b, R, _, _, _ = fit
     return -fit[2]*(b/np.sqrt(a**2+b**2))**3
 
 def track_fit_plot(x, y, u, v, conformal_fit, xc, yc, R,
@@ -117,13 +117,34 @@ def parabolic_2(u, a, b_inv, R):
     v = b_inv/2 - u*a*b_inv - u**2*epsilon*(R*b_inv)**3
     return v
 
+def res_parabolic(X, u, v):
+    '''
+    Returns residuals to minimise
+    '''
+    v_est = parabolic_simple(u, *X)
+    res = np.sum((v_est-v)**2)
+    return res
+
+def lagrange(u, v, p0, vertex):
+    '''
+    Solve by minimisation using method of Lagrange
+    Arguments:
+        * u and v
+        * p0 - initial guesses in the form [A, B, C]
+        * vertex
+    '''
+    cons = ({'type': 'eq',
+             'fun': lambda X: np.array([-parabolic_simple(vertex[0],*X) + vertex[1]])})
+    fit_params = optimize.minimize(res_parabolic, p0, args=(u,v), constraints=cons)
+    return fit_params.x
+
 def rotate_conformal(u, v, alpha): #TODO switch signs back
     r = np.sqrt(u**2 + v**2)
     theta = alpha + np.arctan2(v, u)
     return r*np.cos(theta), r*np.sin(theta)
 
 
-def three_stage_fitting_simple(u, v, pt_true, verbose=False) -> [float, float, float, np.array]:
+def three_stage_fitting_simple(u, v, vertex, verbose=False) -> [float, float, float, np.array]:
     """
     Performs direct linear fit first; if it succeeds, uses the resulting slope to obtain rotation angle.
     The track is then rotated to be roughly parallel to the x-axis.
@@ -142,6 +163,7 @@ def three_stage_fitting_simple(u, v, pt_true, verbose=False) -> [float, float, f
     """
 
     maxfev = 10000 # 5000 # Maximum iterations of scipy curvefit --> potentially worth optimising
+    constrained_optimisation = True
 
     def linear_direct(u, slope, intercept):
         return slope * u + intercept
@@ -182,10 +204,17 @@ def three_stage_fitting_simple(u, v, pt_true, verbose=False) -> [float, float, f
         A_initial_guess = 2*(R_initial_guess-np.sqrt(a**2+b**2))*(R_initial_guess/b)**3
         B_initial_guess = a*(1/b)
         C_initial_guess = 1/(2*b)
-        fit_params, pcov = optimize.curve_fit(parabolic_simple, u, v, p0=(A_initial_guess, B_initial_guess, C_initial_guess), maxfev=maxfev)#, diag=np.array([1.0, scaling_factor, 1.0])) #,
+        fit_params, pcov = optimize.curve_fit(parabolic_simple, u, v,
+                                              p0=(A_initial_guess, B_initial_guess, C_initial_guess),
+                                              maxfev=maxfev)  # , diag=np.array([1.0, scaling_factor, 1.0])) #,
+        # Constrained Optimisation?
+        if constrained_optimisation:
+            p0 = fit_params
+            fit_params = lagrange(u, v, p0=p0, vertex=vertex)
+            #print("Success!")
         A, B, C = fit_params
     except RuntimeError as exc:
-        print("Parabolic fitting failed: " + str(exc))
+        print("Fitting failed: " + str(exc))
         success = -1
         return u, v, None, None, None, None, None, success
     # Get back
@@ -198,7 +227,7 @@ def three_stage_fitting_simple(u, v, pt_true, verbose=False) -> [float, float, f
         R = None
         success = 0
     else:
-        R = sol[0]
+        R = np.array(sol)
         success = 1
     return u, v, a, b, R, pcov, alpha, success
 
@@ -331,6 +360,12 @@ def make_df(prefix, output_dir, endcaps=True,
         y = particle_hits['y'].values[sort_idx]
         vx = particle_hits['vx'].values[0] # force vertex into fit TODO
         vy = particle_hits['vy'].values[0]
+
+        # Creating vertex argument for constrained optimisation
+        xy2 = vx ** 2 + vy ** 2
+        vu, vv = vx / xy2, vy / xy2
+        vertex = [vu, vv]
+
         x = np.insert(x, 0, vx)
         y = np.insert(y, 0, vy)
         # Transformation to conformal space
@@ -348,7 +383,7 @@ def make_df(prefix, output_dir, endcaps=True,
 
         # perform conformal fit - for three_stage_fitting the rotation is performed inside the function
         # and must stay that way as the rotation angle informs the inital linear fit.
-        fit = three_stage_fitting_simple(u[:cutoff], v[:cutoff], pt_true=true_pt, verbose=False)
+        fit = three_stage_fitting_simple(u[:cutoff], v[:cutoff], vertex=vertex, verbose=False)
 
         four_stage = False # Toggle use of the full parabolic fit formula
 
@@ -366,8 +401,11 @@ def make_df(prefix, output_dir, endcaps=True,
                 fit_2 = fit
             conformal_pt = calc_conformal_pt(fit_2)
             conformal_pt_err = abs((true_pt - conformal_pt) / (true_pt))  # TODO uncertainties
+            if len(conformal_pt_err)>1:
+                conformal_pt = conformal_pt[np.argmin(conformal_pt_err)]
+                conformal_pt_err = min(conformal_pt_err)
             if(conformal_pt_err<0.5):
-                print("This is a good fit. a/b = ", fit[2]/fit[3])
+                # print("This is a good fit. a/b = ", fit[2]/fit[3])
                 scale_factor_sum += abs(fit[2]/fit[3])
                 n_good_fits += 1
             conformal_d0 = calc_conformal_d0(fit_2)
