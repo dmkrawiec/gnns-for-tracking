@@ -135,7 +135,8 @@ def lagrange(u, v, p0, vertex):
     '''
     cons = ({'type': 'eq',
              'fun': lambda X: np.array([-parabolic_simple(vertex[0],*X) + vertex[1]])})
-    fit_params = optimize.minimize(res_parabolic, p0, args=(u,v), constraints=cons)
+    fit_params = optimize.minimize(res_parabolic, p0, args=(u,v), constraints=cons)#, method='Nelder-Mead',
+                                   #bounds=[(1e-10, None), (None, None), (None, None)])
     return fit_params.x
 
 def rotate_conformal(u, v, alpha): #TODO switch signs back
@@ -163,7 +164,7 @@ def three_stage_fitting_simple(u, v, vertex, verbose=False) -> [float, float, fl
     """
 
     maxfev = 10000 # 5000 # Maximum iterations of scipy curvefit --> potentially worth optimising
-    constrained_optimisation = True
+    constrained_optimisation = False #True
 
     def linear_direct(u, slope, intercept):
         return slope * u + intercept
@@ -206,7 +207,7 @@ def three_stage_fitting_simple(u, v, vertex, verbose=False) -> [float, float, fl
         C_initial_guess = 1/(2*b)
         fit_params, pcov = optimize.curve_fit(parabolic_simple, u, v,
                                               p0=(A_initial_guess, B_initial_guess, C_initial_guess),
-                                              maxfev=maxfev)  # , diag=np.array([1.0, scaling_factor, 1.0])) #,
+                                              maxfev=maxfev, factor=1)  # , diag=np.array([1.0, scaling_factor, 1.0])) #,
         # Constrained Optimisation?
         if constrained_optimisation:
             p0 = fit_params
@@ -382,7 +383,7 @@ def make_df(prefix, output_dir, endcaps=True,
         ur, vr = rotate(u[:cutoff], v[:cutoff], theta)
 
         # perform conformal fit - for three_stage_fitting the rotation is performed inside the function
-        # and must stay that way as the rotation angle informs the inital linear fit.
+        # and must stay that way as the rotation angle informs the initial linear fit.
         fit = three_stage_fitting_simple(u[:cutoff], v[:cutoff], vertex=vertex, verbose=False)
 
         four_stage = False # Toggle use of the full parabolic fit formula
