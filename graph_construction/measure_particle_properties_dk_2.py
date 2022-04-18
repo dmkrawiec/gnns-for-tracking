@@ -135,7 +135,7 @@ def lagrange(u, v, p0, vertex):
     '''
     cons = ({'type': 'eq',
              'fun': lambda X: np.array([-parabolic_simple(vertex[0],*X) + vertex[1]])})
-    fit_params = optimize.minimize(res_parabolic, p0, args=(u,v), constraints=cons)#, method='Nelder-Mead',
+    fit_params = optimize.minimize(res_parabolic, p0, args=(u,v), constraints=cons)#, method='COBYLA')
                                    #bounds=[(1e-10, None), (None, None), (None, None)])
     return fit_params.x
 
@@ -164,13 +164,19 @@ def three_stage_fitting_simple(u, v, vertex, verbose=False) -> [float, float, fl
     """
 
     maxfev = 10000 # 5000 # Maximum iterations of scipy curvefit --> potentially worth optimising
-    constrained_optimisation = False #True
+    constrained_optimisation = True #True
+
+    # Finding Rotation Angle
+    # include vertex in rotation angle finding
+    vu, vv = vertex
+    u1 = np.insert(u, 0, vu)
+    v1 = np.insert(v, 0, vv)
 
     def linear_direct(u, slope, intercept):
         return slope * u + intercept
 
     try:  # linear fit for rotation
-        lin_fit_params, _ = optimize.curve_fit(linear_direct, u, v)
+        lin_fit_params, _ = optimize.curve_fit(linear_direct, u1, v1)
 
         slope, intercept = lin_fit_params
         if verbose: print('Linear naive fit params: Slope: ', slope, 'Intercept:', intercept)
@@ -182,9 +188,11 @@ def three_stage_fitting_simple(u, v, vertex, verbose=False) -> [float, float, fl
     b = 1/(2*intercept)
     a = -b*slope
 
-    # Rotation
     alpha = -np.arctan(slope)
     u, v = rotate_conformal(u, v, alpha)
+    vu, vv = rotate_conformal(vu, vv, alpha)
+    vertex = [vu, vv]
+
 
     try:  # linear fit
         lin_fit_params, _ = optimize.curve_fit(linear_direct, u, v)
@@ -367,8 +375,9 @@ def make_df(prefix, output_dir, endcaps=True,
         vu, vv = vx / xy2, vy / xy2
         vertex = [vu, vv]
 
-        x = np.insert(x, 0, vx)
-        y = np.insert(y, 0, vy)
+        # TODO does this improve the fitf
+        #x = np.insert(x, 0, vx)
+        #y = np.insert(y, 0, vy)
         # Transformation to conformal space
         xy2 = x**2 + y**2
         u, v = x/xy2, y/xy2
@@ -380,7 +389,7 @@ def make_df(prefix, output_dir, endcaps=True,
         
         # rotate the conformal coordinates 
         theta = np.arctan2(v[:cutoff][-1]-v[0], u[:cutoff][-1]-u[0])
-        ur, vr = rotate(u[:cutoff], v[:cutoff], theta)
+        # ur, vr = rotate(u[:cutoff], v[:cutoff], theta)
 
         # perform conformal fit - for three_stage_fitting the rotation is performed inside the function
         # and must stay that way as the rotation angle informs the initial linear fit.
