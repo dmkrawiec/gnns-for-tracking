@@ -135,7 +135,7 @@ def lagrange(u, v, p0, vertex):
     '''
     cons = ({'type': 'eq',
              'fun': lambda X: np.array([-parabolic_simple(vertex[0],*X) + vertex[1]])})
-    fit_params = optimize.minimize(res_parabolic, p0, args=(u,v), constraints=cons)#, method='COBYLA')
+    fit_params = optimize.minimize(res_parabolic, p0, args=(u,v), constraints=cons)#, method='L-BFGS-B')
                                    #bounds=[(1e-10, None), (None, None), (None, None)])
     return fit_params.x
 
@@ -143,7 +143,6 @@ def rotate_conformal(u, v, alpha): #TODO switch signs back
     r = np.sqrt(u**2 + v**2)
     theta = alpha + np.arctan2(v, u)
     return r*np.cos(theta), r*np.sin(theta)
-
 
 def three_stage_fitting_simple(u, v, vertex, verbose=False) -> [float, float, float, np.array]:
     """
@@ -213,13 +212,14 @@ def three_stage_fitting_simple(u, v, vertex, verbose=False) -> [float, float, fl
         A_initial_guess = 2*(R_initial_guess-np.sqrt(a**2+b**2))*(R_initial_guess/b)**3
         B_initial_guess = a*(1/b)
         C_initial_guess = 1/(2*b)
-        fit_params, pcov = optimize.curve_fit(parabolic_simple, u, v,
-                                              p0=(A_initial_guess, B_initial_guess, C_initial_guess),
-                                              maxfev=maxfev, factor=1)  # , diag=np.array([1.0, scaling_factor, 1.0])) #,
+       # fit_params, pcov = optimize.curve_fit(parabolic_simple, u, v,
+                                              #p0=(A_initial_guess, B_initial_guess, C_initial_guess),
+                                              #maxfev=maxfev, factor=1)  # , diag=np.array([1.0, scaling_factor, 1.0])) #,
         # Constrained Optimisation?
         if constrained_optimisation:
-            p0 = fit_params
+            p0 = [A_initial_guess, B_initial_guess, C_initial_guess]#fit_params
             fit_params = lagrange(u, v, p0=p0, vertex=vertex)
+            pcov = None # TODO remove
             #print("Success!")
         A, B, C = fit_params
     except RuntimeError as exc:
@@ -375,9 +375,9 @@ def make_df(prefix, output_dir, endcaps=True,
         vu, vv = vx / xy2, vy / xy2
         vertex = [vu, vv]
 
-        # TODO does this improve the fitf
         #x = np.insert(x, 0, vx)
         #y = np.insert(y, 0, vy)
+
         # Transformation to conformal space
         xy2 = x**2 + y**2
         u, v = x/xy2, y/xy2
@@ -394,21 +394,25 @@ def make_df(prefix, output_dir, endcaps=True,
         # perform conformal fit - for three_stage_fitting the rotation is performed inside the function
         # and must stay that way as the rotation angle informs the initial linear fit.
         fit = three_stage_fitting_simple(u[:cutoff], v[:cutoff], vertex=vertex, verbose=False)
-
+        u, v, a, b, R, pcov, alpha, success = fit
         four_stage = False # Toggle use of the full parabolic fit formula
 
-        if (fit[-1]!=1):
+        if (success!=1):
             # The last returned parameter is 1 if the fit was successful, else
-            if fit[-1]==0:
+            if success==0:
                 unsuccessful_R_unrecovered += 1
             else:
                 unsuccessful_parabolic_failed += 1
+            a_est = a
+            b_est = b
+            R_est = np.sqrt(a_est ** 2 + b_est ** 2)
         else:
             # Attempting a four-stage fit:
             if four_stage:
                 fit_2 = four_stage_fitting(u[:cutoff], v[:cutoff], three_stage_fit=fit[2:])
             else:
                 fit_2 = fit
+            a_est, b_est, R_est = a, b, R
             conformal_pt = calc_conformal_pt(fit_2)
             conformal_pt_err = abs((true_pt - conformal_pt) / (true_pt))  # TODO uncertainties
             if len(conformal_pt_err)>1:
@@ -426,20 +430,21 @@ def make_df(prefix, output_dir, endcaps=True,
             df_properties.append(properties)
             successful_fits += 1
 
+        xc_est, yc_est = rotate_conformal(a_est, b_est, -alpha) # rotating back
 
-        '''
-                # use conformal fit to inform circle fit
-        yc_est = 1/(2 * fit[0])
-        xc_est = -fit[1]*yc_est
-        est = rotate([xc_est], [yc_est], -theta)
-        xc_est, yc_est = est[0][0], est[1][0]
-        R_est = true_pt/(2*0.0003)
+        # use conformal fit to inform circle fit
+        print("Performing circle fit...")
+        # R_est = true_pt/(2*0.0003) # TODO surely this can't be ok
         (xc, yc), ier = optimize.leastsq(radii_diffs, (xc_est, yc_est), args=(x, y))
-        R = np.mean(calc_radii(xc, yc, x=x[:cutoff], y=y[:cutoff]))
-        circle_pt = calc_circle_pt(R)
+
+
+
+
+        R_circle = np.mean(calc_radii(xc, yc, x=x[:cutoff], y=y[:cutoff]))
+        circle_pt = calc_circle_pt(R_circle)
         circle_pt_err = abs(true_pt-circle_pt)/true_pt
-        circle_d0 = calc_circle_d0(xc, yc, R)
-        circle_R_err = radius_error(x, y, xc, yc, R)
+        circle_d0 = calc_circle_d0(xc, yc, R_circle)
+        circle_R_err = radius_error(x, y, xc, yc, R_circle)
 
         # try the fit again with fewer hits if pt error is bad
         min_err = min(conformal_pt_err, circle_pt_err)
@@ -460,8 +465,7 @@ def make_df(prefix, output_dir, endcaps=True,
         else:
             properties['d0'] = conformal_d0
         df_properties.append(properties)
-        '''
-        
+
     df = pd.concat(df_properties)
     outfile = join(output_dir, f'{evtid}.csv')
     logging.info(f'Writing {outfile}')
